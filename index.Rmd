@@ -1,0 +1,656 @@
+---
+title: "Time Series Analysis"
+
+author: Xavier Bouteiller
+  
+date: March 28, 2020
+
+output:
+  revealjs::revealjs_presentation:
+    fig_width: 5
+    fig_height: 4
+    fig_caption: false
+    theme: simple
+    highlight: haddock
+    center: false
+    transition: slide
+    css: reveal2.css
+    self_contained: false
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo=TRUE, message=FALSE, warning=FALSE)
+```
+
+```{r check_package,  include=FALSE, message=FALSE, warning=FALSE}
+packages <- c("ggplot2", "dplyr", "forecast", "fpp2", "astsa", "xts")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())), repos='http://cran.us.r-project.org')  
+}
+```
+
+# Needed packages
+
+```{r package}
+library(ggplot2)
+library(dplyr)
+library(forecast)
+library(fpp2)
+library(astsa)
+library(xts)
+```
+
+
+
+
+
+# What is a time series ?
+
+- Sequence of data in chronological order
+- Often sequentially recorded
+
+\
+
+<div class="left">
+```{r ts_plot, echo=FALSE, results='asis'}
+df1=data.frame('year'=seq(1992,1998), 'value'=rnorm(7, 10, 2))
+plot(df1, type='l')
+```
+</div>
+<div class="right">
+    ```{r ts_table, echo=FALSE}
+    df1=data.frame('year'=seq(1992,1998), 'value'=round(rnorm(7, 10, 2),2))
+    knitr::kable(df1)
+    ```
+</div>
+
+
+
+
+# The R ts() object
+
+
+
+\
+
+<div class="left">
+```{r ts_object}
+data1=rnorm(12*2)
+tsdata1=ts(data1, start=2000, frequency=1)
+autoplot(tsdata1)+geom_point()+geom_line()
+
+```
+\
+Sampled annualy from 2000
+\
+</div>
+<div class="right">
+```{r ts_object2}
+data1=rnorm(12*2)
+tsdata1=ts(data1, start=2000, frequency=12)
+autoplot(tsdata1)+geom_point()+geom_line()
+
+```
+\
+Sampled monthly from 2000
+\
+</div>
+
+## Components of a  time series
+
+- trend
+- seasonality
+- noise
+
+\
+\
+$$y_{t} =  T_{t} + S_{t} + R_t$$
+
+## Examples
+
+```{r ts_compo, echo=FALSE}
+data(co2)
+data(lynx)
+data(hsales)
+data(sp500w)
+par(mfrow=c(2,2))
+autoplot(co2)
+autoplot(lynx)
+autoplot(hsales)
+autoplot(sp500w)
+
+```
+
+# Decompose a time series
+
+https://otexts.com/fpp2/decomposition.html
+
+\
+\
+
+- Moving Average (rolling mean) i.e. the classical decomposition
+- Many other algorithms developped (SEATS, STL, X11)
+- Exponential smoothing (loess, spline ...)
+
+
+## Moving Average (rolling mean)
+
+```{r rolling, echo=TRUE}
+roll=rollmean(hsales,5)
+roll
+```
+
+## Moving Average (rolling mean)
+
+```{r, echo=TRUE}
+autoplot(hsales, series="Data") +
+  autolayer(ma(hsales,5), series="5-MA")+
+  autolayer(ma(hsales,12), series="12-MA") +
+  xlab("Year") + ylab("GWh") +
+  ggtitle("house sales") +
+  scale_colour_manual(values=c("Data"="grey","5-MA"="blue", "12-MA"="red"),
+                      breaks=c("Data","5-MA", "12-MA"))
+```
+
+## Classical decomposition
+
+- step 1: trend with rolling mean    $\hat{T}_t$
+- step 2: detrend    $y_t - \hat{T}_t$
+- step 3: seasonal component by simply average the detrended values for that season    $\hat{S}_t$
+- step 4: residuals    $\hat{R}_t = y_t - \hat{T}_t - \hat{S}_t$
+
+## Classical decomposition
+
+```{r classic_decomp}
+
+hsales %>% decompose(type="additive") %>%
+  autoplot() + xlab("Year") +
+  ggtitle("Classical additive decomposition
+    of house sales")
+
+```
+
+
+
+## Exercises
+
+Plot and decompose the following TS:
+- ausbeer
+- elecequip
+- AirPassengers
+
+# Stationary Time Series
+
+## Stationary Time Series
+
+A TS is stationary if is parameters are stable over time:
+
+- Trend is zero (linear, log, exp, periodic...)
+
+\
+```{r trend, echo=FALSE}
+df=rnorm(1000)
+par(mfrow=c(1,2))
+autoplot(ts(df))
+autoplot(ts(df*70+1:1000*0.5))
+
+```
+
+## Stationary Time Series
+
+A TS is stationary if is parameters are stable over time:
+
+- Trend is zero (linear, log, exp, periodic...)
+- variance is constant
+
+\
+```{r variance, echo=FALSE}
+df=rnorm(1000)
+par(mfrow=c(1,2))
+autoplot(ts(df))
+autoplot(ts(c(df[1:500],rnorm(500, sd = 10))))
+
+```
+
+## Stationary Time Series
+
+A TS is stationary if is parameters are stable over time:
+
+- Trend is zero (linear, log, exp, periodic...)
+- variance is constant
+- autocorrelation is constant
+
+\
+```{r autocorr, echo=FALSE}
+df=rnorm(1000)
+par(mfrow=c(1,2))
+autoplot(ts(df))
+autoplot(ts(c(arima.sim(model=list(order=c(1,0,0), ar=0.99),500),arima.sim(model=list(order=c(1,0,0), ar=0.8),500))))
+```
+
+# ACF and PACF
+
+## lagged correlation
+
+correlation at lag 1:   $corr(y_t,y_{t-1})$
+
+```{r autocorr1}
+cor(hsales[-100], hsales[-1])
+
+```
+
+correlation at lag 2:   $corr(y_t,y_{t-2})$
+
+```{r autocorr2}
+cor(hsales[-(99:100)], hsales[-(1:2)])
+
+```
+## ACF plot
+
+
+\
+
+<div class="left">
+```{r ts_hsales}
+
+autoplot(hsales)
+
+```
+\
+
+</div>
+<div class="right">
+```{r acf_hsales}
+acf(hsales)
+
+```
+
+\
+</div>
+
+
+
+## PACF plot 
+
+- PACF is the corr between TS & the lagged version of itself after we substract the effect of corr at smaller lag
+- So is the correlation associated with just that particular lag 
+
+\
+```{r pacf}
+library(astsa)
+acf2(hsales)
+```
+
+
+## On stationary TS
+
+```{r acf_statio, echo=FALSE}
+data=rnorm(1000)
+par(mfrow=c(3,1))
+autoplot(ts(data))
+ggAcf(data)
+ggPacf(data)
+```
+
+## On *non* stationary TS
+
+```{r acf_NON_statio, echo=FALSE}
+par(mfrow=c(3,1))
+autoplot(ts(cumsum(data)))
+ggAcf(cumsum(data))
+ggPacf(cumsum(data))
+```
+
+## On **real** TS
+
+```{r acf_real, echo=FALSE}
+par(mfrow=c(3,1))
+autoplot(Lynx)
+ggAcf(Lynx)
+ggPacf(Lynx)
+```
+
+
+# Stationarize a time series
+
+\
+
+- log transform
+- square root transform
+- differencing    $y'_t = y_t - y_{t-1}$
+- n differencing    $y'_t = y_t - y_{t-n}$
+- combine methods
+
+## Example 1
+
+```{r statio_1}
+cbind("Airpassengers" = AirPassengers,
+      "log Airpassengers" = log(AirPassengers),
+      "diff lag 1 Airpassengers" = diff(log(AirPassengers),1)) %>%
+  autoplot(facets=TRUE) +
+    xlab("Year") + ylab("") +
+    ggtitle("Airpassengers")
+```
+
+## Example 2
+
+```{r statio_2}
+cbind("Sales ($million)" = a10,
+      "Monthly log sales" = log(a10),
+      "Annual change in log sales" = diff(log(a10),12)) %>%
+  autoplot(facets=TRUE) +
+    xlab("Year") + ylab("") +
+    ggtitle("Antidiabetic drug sales")
+```
+
+## Example 3
+
+```{r statio_3}
+cbind("Billion kWh" = usmelec,
+      "Logs" = log(usmelec),
+      "Seasonally\n differenced logs" =
+        diff(log(usmelec),12),
+      "Doubly\n differenced logs" =
+        diff(diff(log(usmelec),12),1)) %>%
+  autoplot(facets=TRUE) +
+    xlab("Year") + ylab("") +
+    ggtitle("Monthly US net electricity generation")
+```
+
+
+## Exercices
+
+\
+Try to stationarize several TS
+
+- ausbeer
+- elecequip
+- h02
+- co2
+\
+
+Assess results visualy and using A/Pacf
+
+
+# AR model
+
+correlation with previous value(s)
+
+- lag 1
+\
+$$ y_{t} = c + \phi_{1}y_{t-1}  $$
+
+- lag 2
+\
+$$ y_{t} = c + \phi_{1}y_{t-1} + \phi_{2}y_{t-2} $$
+
+- lag n
+\
+$$ y_{t} = c + \phi_{1}y_{t-1} + \phi_{2}y_{t-2} + \dots + \phi_{p}y_{t-p} + \varepsilon_{t}$$
+
+## simulate AR model
+
+
+```{r ar1_2}
+ar1=arima.sim(model=list(order=c(1,0,0), ar=0.6),500)
+ar2=arima.sim(model=list(order=c(2,0,0), ar=c(0.6,0.2)),500)
+```
+```{r ar1_2plot, echo = FALSE}
+par(mfrow=c(2,1))
+autoplot(ar1)
+autoplot(ar2)
+```
+
+## A/Pacf
+
+```{r ar1_2acf, echo = FALSE}
+par(mfrow=c(2,1))
+ggAcf(ar2)
+ggPacf(ar2)
+```
+
+# MA model
+
+correlation with past **error** value(s)
+
+- lag 1
+$$y_{t} = c + \varepsilon_t + \theta_{1}\varepsilon_{t-1}  $$
+
+- lag 2
+$$ y_{t} = c + \varepsilon_t + \theta_{1}\varepsilon_{t-1} + \theta_{2}\varepsilon_{t-2}  $$ 
+
+- lag n
+$$ y_{t} = c + \varepsilon_t + \theta_{1}\varepsilon_{t-1} + \theta_{2}\varepsilon_{t-2} + \dots + \theta_{q}\varepsilon_{t-q}$$
+
+## simulate MA model
+
+
+```{r ma1_2}
+ma1=arima.sim(model=list(order=c(0,0,1), ma=0.5),500)
+ma3=arima.sim(model=list(order=c(0,0,3), ma=c(0.5,-0.3,0.1)),500)
+```
+```{r ma1_2plot, echo = FALSE}
+par(mfrow=c(2,1))
+autoplot(ma1)
+autoplot(ma3)
+```
+
+## A/Pacf
+
+```{r ma1_2acf, echo = FALSE}
+par(mfrow=c(2,1))
+ggAcf(ma3)
+ggPacf(ma3)
+```
+
+
+# ARMA model
+
+## Combining AR and MA models
+
+- for **stationary** TS
+
+$$y_{t} = c + \phi_{1}y_{t-1} + \cdots + \phi_{p}y_{t-p} 
+     + \theta_{1}\varepsilon_{t-1} + \cdots + \theta_{q}\varepsilon_{t-q} + \varepsilon_{t}$$
+     
+
+## ARMA(p, d, q)
+
+\
+
+- p:	order of the autoregressive part
+- d:	degree of first differencing involved **0 for ARMA model**
+- q: order of the moving average part
+
+## Example
+```{r arma1_2}
+arma21=arima.sim(model=list(order=c(2,0,1), ar=c(0.9,-0.5), ma=c(0.9)),500)
+```
+```{r arma1_2plot, echo = FALSE}
+par(mfrow=c(3,1))
+autoplot(arma21)
+ggAcf(arma21)
+ggPacf(arma21)
+```
+
+
+## estimate
+
+```{r sarima}
+sarima(arma21, p=2, d=0,q=1, details=FALSE)
+```
+
+## Select the Best model 1
+
+AIC or BIC scores
+The lower the better
+
+```{r aic_bic}
+sarima(arma21, p=2, d=0,q=1, details=FALSE)$AIC
+sarima(arma21, p=3, d=0,q=1, details=FALSE)$BIC
+```
+## Select the Best model 2
+
+AIC or BIC scores
+The lower the better
+
+```{r aic_bic_selection, echo=FALSE}
+dataframe=data.frame('p'=NA, 'q'=NA, 'AIC'=NA, 'BIC'=NA)
+row=1
+for(i in seq(0,3)){
+  for(j in seq(0,3)){
+    mod=sarima(arma21, p=i, d=0,q=j, details=FALSE)
+    dataframe[row,'p']=i
+    dataframe[row,'q']=j
+    dataframe[row,'AIC']=round(mod$AIC,2)
+    dataframe[row,'BIC']=round(mod$BIC,2)
+    row=row+1
+  }}
+
+knitr::kable(dataframe)
+```
+
+
+
+## Auto estimate parameters
+
+```{r auto arima}
+auto.arima(arma21)
+```
+
+## Forecasting with ARMA
+
+```{r}
+sarima.for(arma21, n.ahead = 20, p = 2, d = 0, q = 1)
+```
+
+## Exercises
+
+Stationarize the TS:
+
+- ausbeer
+- elecequip
+- h02
+- co2
+\
+
+then fit ARMA model and try to forecast the 20 points after
+
+
+# ARIMA for non stationary & non seasonal TS
+
+## Non seasonal ARIMA
+
+If we combine:
+- differencing 
+- autoregression 
+- moving average model
+
+we obtain a non-seasonal ARIMA model. 
+
+
+
+## Non seasonal ARIMA 2
+
+ARIMA: AutoRegressive Integrated Moving Average
+
+$$y'_{t} = c + \phi_{1}y'_{t-1} + \cdots + \phi_{p}y'_{t-p}
+     + \theta_{1}\varepsilon_{t-1} + \cdots + \theta_{q}\varepsilon_{t-q} + \varepsilon_{t}$$
+$$ARIMA(p,d,q)$$
+d=degree of first differencing involved
+
+## ARIMA modelling
+
+```{r ex_rappel, echo=FALSE}
+autoplot(usnetelec)+ylab("billion kwh")+xlab('year')
+```
+
+## ARIMA modelling 2
+
+```{r arima_acf_pacf}
+acf2(usnetelec)
+```
+## ARIMA modelling 3
+
+```{r arima_acf_pacf2}
+acf2(diff(usnetelec))
+```
+
+## ARIMA modelling 4
+
+
+```{r arima_mod}
+fit=auto.arima(usnetelec)
+fit
+```
+
+$$ y'_t = c - 1.30y'_{t-1}
+          -0.43y'_{t-1}
+          + 1.53 \varepsilon_{t-1}
+          + 0.83 \varepsilon_{t-2}
+          + \varepsilon_{t}$$
+
+## Diagnostic
+
+```{r check_res}
+checkresiduals(fit)
+```
+
+## Forecasting with arima
+
+```{r for_arima}
+fit %>% forecast(15) %>% autoplot()
+```
+
+
+# SARIMA for non stationary & seasonal TS
+
+\
+
+$$SARIMA(p,d,q)(P,Q,D)_{S}$$
+\
+A seasonal ARIMA model is formed by including **additional seasonal** terms in the ARIMA models
+
+## SARIMA 1
+
+```{r SARIMA1}
+lh02 <- log(h02)
+cbind("H02 sales (million scripts)" = h02,
+      "Log H02 sales"=lh02) %>%
+  autoplot(facets=TRUE) + xlab("Year") + ylab("")
+```
+
+## SARIMA 2
+
+```{r SARIMA2}
+lh02 %>% diff(12) %>% ggtsdisplay()
+```
+In the plots of the seasonally differenced data, there are spikes in the PACF at lags 12 and 24, but nothing at seasonal lags in the ACF. This may be suggestive of a seasonal AR(2) term. In the non-seasonal lags, there are three significant spikes in the PACF, suggesting a possible AR(3) term. The pattern in the ACF is not indicative of any simple model
+
+## fit Arima
+
+```{r fit_Sarima}
+fit <- Arima(h02, order=c(3,0,1), seasonal=c(0,1,2))
+fit
+```
+
+## Check residuals
+
+```{r check_Sarima}
+checkresiduals(fit)
+```
+Compare with auto.arima
+
+## forecast sarima
+
+```{r forecast_sarima,  fig.margin=TRUE}
+ fit %>%
+  forecast() %>%
+  autoplot() +
+    ylab("H02 sales (million scripts)") + xlab("Year")
+```
+
+
+
+
+
